@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,11 +12,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/netbirdio/kube-egress-forwarder/internal/watcher"
 	"github.com/netbirdio/kube-egress-forwarder/pkg/forwarder"
 )
 
@@ -57,32 +55,12 @@ func run(cmName, cmNamespace string) error {
 	if err != nil {
 		return err
 	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return err
-	}
-	watcher, err := clientset.CoreV1().ConfigMaps(cmNamespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", cmName),
-	})
+	kubeClient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err
 	}
 	group.Go(func() error {
-		for event := range watcher.ResultChan() {
-			cm, ok := event.Object.(*corev1.ConfigMap)
-			if !ok {
-				continue
-			}
-			ruleMgr, err := forwarder.NewRuleManager(cm.Data)
-			if err != nil {
-				return err
-			}
-			err = fwd.Reconcile(ruleMgr.AllRules())
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return watcher.Watch(ctx, fwd, kubeClient, cmName, cmNamespace)
 	})
 
 	err = group.Wait()

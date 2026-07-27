@@ -33,6 +33,10 @@ linters:
           alias: corev1
         - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
           alias: metav1
+        - pkg:  k8s.io/apimachinery/pkg/watch
+          alias: apimachinerywatch
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: kerrors
       no-extra-aliases: true
     goheader:
       template: |-
