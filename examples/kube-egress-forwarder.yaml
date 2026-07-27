@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-egress-forwarder
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-egress-forwarder
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-egress-forwarder
+subjects:
+  - kind: ServiceAccount
+    name: kube-egress-forwarder
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kube-egress-forwarder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-egress-forwarder
+  namespace: default
+  labels:
+    app: kube-egress-forwarder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-egress-forwarder
+  template:
+    metadata:
+      labels:
+        app: kube-egress-forwarder
+    spec:
+      serviceAccountName: kube-egress-forwarder
+      containers:
+        - name: kube-egress-forwarder
+          image: ghcr.io/netbirdio/kube-egress-forwarder:dev
+          args:
+            - --configmap-name=forwarder
+            - --configmap-namespace=default
