@@ -99,12 +99,12 @@ func (f *Forwarder) Reconcile(rules []Rule) error {
 }
 
 func (f *Forwarder) forwardConn(ctx context.Context, conn net.Conn, rule Rule) error {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	dst, err := f.dialer.DialContext(ctx, strings.ToLower(string(rule.Protocol)), rule.Dest)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	// A failed copy or a forwarder shutdown closes both connections, which unblocks the
 	// other copy. A clean end of both copies returns normally and the deferred closes run.
