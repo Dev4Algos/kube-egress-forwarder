@@ -127,7 +127,7 @@ func TestForwarderClientCloseReachesDestination(t *testing.T) {
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = backend.Close() })
-	eofs := make(chan struct{}, 32)
+	eofs := make(chan error, 32)
 	go func() {
 		for {
 			c, err := backend.Accept()
@@ -136,8 +136,8 @@ func TestForwarderClientCloseReachesDestination(t *testing.T) {
 			}
 			go func() {
 				defer c.Close()
-				_, _ = io.Copy(io.Discard, c)
-				eofs <- struct{}{}
+				_, err := io.Copy(io.Discard, c)
+				eofs <- err
 			}()
 		}
 	}()
@@ -154,11 +154,53 @@ func TestForwarderClientCloseReachesDestination(t *testing.T) {
 	}
 	for i := range conns {
 		select {
-		case <-eofs:
+		case err := <-eofs:
+			require.NoError(t, err, "destination did not see a clean EOF")
 		case <-time.After(5 * time.Second):
 			t.Fatalf("destination saw the client close on %d of %d connections", i, conns)
 		}
 	}
+	waitForGoroutines(t, baseline)
+}
+
+// TestForwarderClientHalfCloseKeepsResponse checks that a client closing only its write
+// side still receives the response the destination sends after seeing EOF.
+func TestForwarderClientHalfCloseKeepsResponse(t *testing.T) {
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = backend.Close() })
+	go func() {
+		for {
+			c, err := backend.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				request, err := io.ReadAll(c)
+				if err != nil {
+					return
+				}
+				_, _ = c.Write(append([]byte("pong:"), request...))
+			}()
+		}
+	}()
+	addr := startForwarder(t, backend.Addr().String())
+	baseline := runtime.NumGoroutine()
+
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = conn.Write([]byte("ping"))
+	require.NoError(t, err)
+	tcpConn, ok := conn.(*net.TCPConn)
+	require.True(t, ok)
+	require.NoError(t, tcpConn.CloseWrite())
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	data, err := io.ReadAll(conn)
+	require.NoError(t, err, "client never received the response after its half-close")
+	require.EqualT(t, "pong:ping", string(data))
+	require.NoError(t, conn.Close())
 	waitForGoroutines(t, baseline)
 }
 
